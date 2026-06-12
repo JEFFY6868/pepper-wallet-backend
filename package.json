@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "react-qr-code": "^2.0.21",
+    "react-router-dom": "^7.16.0"
+  }
+}

@@ -1,0 +1,4 @@
+jeffy@pop-os:~/pepper_phase1$ source venv/bin/activate
+(venv) jeffy@pop-os:~/pepper_phase1$ cd pepper_wallet/backend
+(venv) jeffy@pop-os:~/pepper_phase1/pepper_wallet/backend$ uvicorn main:app --host 0.0.0.0 --port 8000
+
