@@ -4,4 +4,6 @@ __pycache__/
 *.pyo
 *.db
 .env
+.env.local
+.env.production
 .pytest_cache/
