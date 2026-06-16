@@ -1,8 +1,12 @@
 import sys
+import time
 from pathlib import Path
 from wallet_qr import generate_payment_qr
 from pydantic import BaseModel
 from razorpay_config import client
+import hmac
+import hashlib
+import os
 # =========================
 # ADD ROOT PROJECT PATH
 # =========================
@@ -44,9 +48,7 @@ from wallet_controller import (
 
 )
 
-from wallet_state import (
-    wallet_state
-)
+from wallet_context import build_wallet_context
 
 from wallet_goals import (
     goals
@@ -84,6 +86,32 @@ from wallet_controller import (
     handle_deposit,
     handle_lock,
     handle_unlock
+)
+
+from database.wallet_db import load_wallet_state
+
+from wallet_controller import (
+    handle_deposit,
+    handle_lock,
+    handle_unlock,
+    handle_expense
+)
+
+from wallet_reports import (
+    monthly_report
+)
+
+from wallet_advisor import (
+    get_financial_advice
+)
+
+from wallet_budgets import (
+    set_budget,
+    get_budgets
+)
+
+from wallet_budget_analysis import (
+    budget_status
 )
 # =========================
 # INITIALIZE DATABASE
@@ -136,23 +164,14 @@ def root():
 # =========================
 
 @app.get("/wallet")
+def get_wallet():
 
-def get_wallet(
-
-    user=Depends(
-        verify_token
-    )
-
-):
+    wallet = load_wallet_state()
 
     return {
-
-        "wallet": wallet_state,
-
+        "wallet": wallet,
         "goals": get_goals(),
-
         "analytics": analytics_summary()
-
     }
 
 # =========================
@@ -195,6 +214,29 @@ class QRRequest(BaseModel):
     amount: float
 
 class PaymentRequest(BaseModel):
+
+    amount: float
+    
+class VerifyPaymentRequest(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+    
+class ExpenseRequest(BaseModel):
+
+    amount: float
+    category: str = "Other"
+    note: str = ""
+    
+class ExpenseRequest(BaseModel):
+
+    amount: float
+    category: str = "Other"
+    note: str = ""
+    
+class BudgetRequest(BaseModel):
+
+    category: str
 
     amount: float
 # =========================
@@ -274,13 +316,7 @@ def unlock_money_api(
 # =========================
 @app.get("/history")
 
-def get_history(
-
-    user=Depends(
-        verify_token
-    )
-
-):
+def get_history( ):
 
     return {
 
@@ -321,35 +357,35 @@ def ai_chat(
     request: AIRequest
 ):
 
+    wallet = load_wallet_state()
+    
+    context = build_wallet_context()
+
     prompt = f"""
-
-Wallet Information:
-
-{wallet_state}
-
-Goals:
-
-{get_goals()}
-
-Transaction History:
-
-{view_history()}
-
-Analytics:
-
-{analytics_summary()}
-
-User Question:
-
-{request.message}
-
 You are Pepper Wallet AI.
 
-Use the wallet, goals, history and analytics
-to answer accurately.
+Wallet:
+{context["wallet"]}
 
-Give useful financial insights when appropriate.
+Goals:
+{context["goals"]}
 
+Analytics:
+{context["analytics"]}
+
+Monthly Report:
+{context["monthly_report"]}
+
+User Question:
+{request.message}
+
+Instructions:
+
+1. First answer the user's question directly.
+2. Only mention wallet balances if relevant.
+3. Do not repeat total_balance, locked_balance, and available_balance unless the user asks about money or balances.
+4. Keep answers short and natural.
+5. Use wallet data only when it helps answer the question.
 """
 
     print(prompt)
@@ -505,24 +541,26 @@ def generate_qr_api(
 
     }   
     
-@app.post("/create-order")
-def create_order(
-    request: PaymentRequest
-):
+@app.post("/api/create-order")
+def create_order(request: PaymentRequest):
+
+    if request.amount <= 0:
+        return {
+            "success": False,
+            "message": "Invalid amount"
+        }
 
     order = client.order.create({
-
-        "amount": int(
-            request.amount * 100
-        ),
-
+        "amount": int(request.amount * 100),
         "currency": "INR",
-
-        "payment_capture": 1
-
+        "receipt": f"wallet_{int(time.time())}"
     })
 
-    return order
+    return {
+        "order_id": order["id"],
+        "amount": order["amount"],
+        "currency": order["currency"]
+    }
     
 @app.post("/payment-success")
 def payment_success(
@@ -534,3 +572,106 @@ def payment_success(
     )
 
     return result
+    
+@app.post("/api/verify-payment")
+def verify_payment(
+    request: VerifyPaymentRequest
+):
+
+    generated_signature = hmac.new(
+        os.getenv("RAZORPAY_KEY_SECRET").encode(),
+        f"{request.razorpay_order_id}|{request.razorpay_payment_id}".encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+    if generated_signature != request.razorpay_signature:
+
+        return {
+            "success": False,
+            "message": "Invalid signature"
+        }
+
+    handle_deposit(1)
+
+    return {
+        "success": True,
+        "message": "Payment verified"
+    }
+    
+@app.post("/expense")
+
+def expense_api(
+
+    request: ExpenseRequest,
+
+    user=Depends(
+        verify_token
+    )
+
+):
+
+    return handle_expense(
+
+        request.amount,
+        request.category,
+        request.note
+
+    )
+    
+# =========================
+# MONTHLY REPORT
+# =========================
+
+@app.get("/monthly-report")
+
+def get_monthly_report():
+
+    return monthly_report()
+    
+# =========================
+# FINANCIAL ADVISOR
+# =========================
+
+@app.get("/financial-advice")
+
+def financial_advice():
+
+    return get_financial_advice()
+    
+@app.post("/budget")
+
+def create_budget(
+
+    request: BudgetRequest
+
+):
+
+    return set_budget(
+
+        request.category,
+
+        request.amount
+
+    )
+
+
+@app.get("/budgets")
+
+def budgets_api():
+
+    return {
+
+        "budgets": get_budgets()
+
+    }
+
+
+@app.get("/budget-status")
+
+def budget_status_api():
+
+    return {
+
+        "status": budget_status()
+
+    }

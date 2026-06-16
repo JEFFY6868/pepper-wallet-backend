@@ -1,16 +1,12 @@
-import uuid
 import sys
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-
 sys.path.append(str(ROOT_DIR))
 
-from wallet_state import wallet_state
+from wallet_service import deposit
 from wallet_history import add_transaction
-# =========================
-# GENERATE QR
-# =========================
+
 
 def generate_payment_qr(amount):
 
@@ -29,9 +25,6 @@ def generate_payment_qr(amount):
         "upi_link": upi_link
     }
 
-# =========================
-# RECEIVE MONEY
-# =========================
 
 def receive_money(amount):
 
@@ -42,9 +35,7 @@ def receive_money(amount):
             "error": "Invalid amount"
         }
 
-    wallet_state["total_balance"] += amount
-
-    wallet_state["available_balance"] += amount
+    wallet = deposit(amount)
 
     add_transaction(
         "receive",
@@ -53,11 +44,7 @@ def receive_money(amount):
     )
 
     return {
-
         "success": True,
-
         "message": f"Received ₹{amount}",
-
-        "wallet": wallet_state
-
+        "wallet": wallet
     }

@@ -1,5 +1,7 @@
 import json
-from wallet_state import wallet_state
+
+from wallet_service import get_wallet
+from database.wallet_db import save_wallet_state
 from wallet_history import add_transaction
 
 GOALS_FILE = "goals.json"
@@ -8,60 +10,31 @@ GOALS_FILE = "goals.json"
 def get_goals():
 
     try:
-
-        with open(
-
-            GOALS_FILE,
-
-            "r"
-
-        ) as file:
-
+        with open(GOALS_FILE, "r") as file:
             return json.load(file)
 
     except:
-
         return []
 
 
 def save_goals(goals):
 
-    with open(
-
-        GOALS_FILE,
-
-        "w"
-
-    ) as file:
-
+    with open(GOALS_FILE, "w") as file:
         json.dump(
-
             goals,
-
             file,
-
             indent=4
-
         )
 
 
-def create_goal(
-
-    name,
-    target
-
-):
+def create_goal(name, target):
 
     goals = get_goals()
 
     goal = {
-
         "name": name,
-
         "target": target,
-
         "saved": 0
-
     }
 
     goals.append(goal)
@@ -69,6 +42,7 @@ def create_goal(
     save_goals(goals)
 
     return goal
+
 
 def add_to_goal(index, amount):
 
@@ -99,16 +73,25 @@ def add_to_goal(index, amount):
 
     remaining = goal["target"] - goal["saved"]
 
-    amount_to_add = min(amount, remaining)
+    amount_to_add = min(
+        amount,
+        remaining
+    )
 
-    if wallet_state["available_balance"] < amount_to_add:
+    wallet = get_wallet()
+
+    if wallet["available_balance"] < amount_to_add:
 
         return {
             "success": False,
             "error": "Not enough available balance"
         }
 
-    wallet_state["available_balance"] -= amount_to_add
+    # Move money from available -> locked
+    wallet["available_balance"] -= amount_to_add
+    wallet["locked_balance"] += amount_to_add
+
+    save_wallet_state(wallet)
 
     goal["saved"] += amount_to_add
 
@@ -131,10 +114,12 @@ def add_to_goal(index, amount):
         return {
             "success": True,
             "message": "🎉 Goal completed!",
-            "goal": goal
+            "goal": goal,
+            "wallet": wallet
         }
 
     return {
         "success": True,
-        "goal": goal
+        "goal": goal,
+        "wallet": wallet
     }
